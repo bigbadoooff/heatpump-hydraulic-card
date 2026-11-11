@@ -2652,6 +2652,9 @@
         heat_hc_day: 'warme_heizen_tag', heat_hc_total: 'warme_heizen_gesamt', heat_dhw_day: 'warme_warmwasser_tag', heat_dhw_total: 'warme_warmwasser_gesamt',
         daily_cop_total: 'cop_tag_gesamt', lifetime_cop_total: 'cop_lebensdauer_gesamt', compressor_runtime_heating: 'verdichter_laufzeit_heizen',
         fault_status: 'fehlerstatus',
+        // Entity ids of a real installation (German default style).
+        main_ventilator_speed: 'hauptventilator_drehzahl', heat_stage_control_modul: 'heizstufensteuerung', dhw_op_mode: 'warmwasser_betriebsmodus',
+        daily_cop_hc: 'taglicher_cop_heizung', daily_cop_dhw: 'taglicher_cop_warmwasser',
       },
       binary_sensor: {
         compressor: 'verdichter', defrost: 'abtauen', heating_dhw: 'warmwasserbereitung', heating_circuit_pump: 'heizkreispumpe',
@@ -2689,6 +2692,9 @@
         [sid('heat_dhw_total')]: { state: '6900', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
         [sid('daily_cop_total')]: '3.6', [sid('lifetime_cop_total')]: '3.5',
         [sid('compressor_runtime_heating')]: ['14210', 'h'], [sid('fault_status')]: scen === 'idle' ? 'fault' : 'ok',
+        [sid('main_ventilator_speed')]: [pick({ heat: '38', dhw: '42', defrost: '0', idle: '0' }), 'Hz'], [sid('heat_stage_control_modul')]: '0.0',
+        // The hot water program, never "heating hot water now": setback in every scenario, also while the DHW flag is on.
+        [sid('dhw_op_mode')]: 'setback', [sid('daily_cop_hc')]: '5.37', [sid('daily_cop_dhw')]: '2.18',
         [bid('compressor')]: scen === 'idle' ? 'off' : 'on', [bid('defrost')]: scen === 'defrost' ? 'on' : 'off', [bid('heating_dhw')]: scen === 'dhw' ? 'on' : 'off',
         [bid('heating_circuit_pump')]: scen === 'dhw' ? 'off' : 'on', [bid('solar_pump')]: 'off', [bid('mixer_open')]: 'off', [bid('mixer_closed')]: 'off',
         [tid('select', 'op_mode')]: { state: scen === 'idle' ? 'setback' : 'automatic', attributes: { options: ['standby', 'automatic', 'daymode', 'setback', 'dhwmode', 'manual', 'emergency'] } },
@@ -2731,6 +2737,18 @@
       && t.cop_total?.total === sid('lifetime_cop_total') && t.heat_cooling === undefined, 'THZ tiles: day and total counters per use, the integration COP');
     check(JSON.stringify(r.errors) === JSON.stringify([sid('fault_status')]) && r.controls.length === 3 && r.details.includes(sid('compressor_runtime_heating')),
       `THZ fault status, quick controls and details (${r.controls.join()})`);
+    // Fields added from a real installation.
+    check(e.fan_speed === sid('main_ventilator_speed') && e.dhw_mode === sid('dhw_op_mode') && e.hc_return === sid('return_temp')
+      && e.cop_heating_today === sid('daily_cop_hc') && e.cop_dhw_today === sid('daily_cop_dhw'),
+      `THZ main ventilator, hot water mode, return of circuit 1 and the daily COP per use (${e.fan_speed} / ${e.dhw_mode} / ${e.hc_return})`);
+    check(!r.details.includes(sid('daily_cop_hc')) && !r.details.includes(sid('daily_cop_dhw')) && !r.details.includes(sid('dhw_op_mode')),
+      'THZ: the mapped daily COP and hot water mode are not repeated in the details');
+    check(e.circulation === undefined && e.hours === undefined && e.energy_total === undefined && e.energy_today === undefined && e.hc_volume === undefined,
+      'THZ: no circulation (dhw_pump is the charging pump), no totals over all uses, no circuit flow rate');
+    const noStage = C._resolve(config, hassOf(toStates(Object.fromEntries(Object.entries(base('heat')).filter(([id]) => id !== sid('hc_booster_stage')))), reg)).entities;
+    check(noStage.heater === sid('heat_stage_control_modul'), `THZ: without the booster stage the heat stage control is the heater (${noStage.heater})`);
+    const twoHc = C._resolve({ ...config, hc_count: 2 }, hass('heat', { [sid('flow_temp_hc2')]: ['31.0', '°C'] })).entities;
+    check(twoHc.hc2_return === undefined, 'THZ: the heat pump return is not given to circuit 2');
     const thz = async (scen, extra = {}) => {
       const card = mount(config, hass(scen, extra)); await wait(20);
       const q = (id) => card.shadowRoot.getElementById(id);

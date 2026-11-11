@@ -1165,13 +1165,20 @@ const HFC_PRESETS = {
         return: s('return_temp'),
         volume: reading(s('flow_rate')),
         outdoor: s('outside_temp'),
-        // Booster (electric inline heater): its stage (0 to 3) or the booster flag; both are disabled by default.
-        heater: s('hc_booster_stage').length ? s('hc_booster_stage') : b('booster_hc'),
+        // Main ventilator speed (Hz) of the integral unit.
+        fan_speed: reading(s('main_ventilator_speed')),
+        // Booster (electric inline heater): its stage (0 to 3), else the heat stage control of block pxxF2 (enabled by default),
+        // else the booster flag. The stage and the flag are disabled by default.
+        heater: [...s('hc_booster_stage', 'heat_stage_control_modul'), ...b('booster_hc')],
         dhw_top: s('dhw_temp'),
         dhw_target: s('dhw_set_temp'),
+        // Operating mode of the hot water side (block pxxF3), shown as text; its states never mean "heating hot water now".
+        dhw_mode: s('dhw_op_mode'),
         solar_collector: solar,
         ...(solar.length ? { solar_pump: b('solar_pump') } : {}),
         hc_flow: s('heat_temp'),
+        // The THZ reports the return of the heat pump only; circuit 1 is fed by the heat pump directly (no buffer in the read map).
+        hc_return: s('return_temp'),
         hc_setpoint: s('heat_set_temp'),
         hc_pump: b('heating_circuit_pump', 'pump_hc'),
         hc_pressure: reading(s('pressure_hc')),
@@ -1187,6 +1194,9 @@ const HFC_PRESETS = {
         cond_temp: reading(s('condenser_temp')),
         high_pressure: reading(s('pressure_hd')),
         low_pressure: reading(s('pressure_nd')),
+        // The integration's daily COP per use (from 4.19 on).
+        cop_heating_today: reading(s('daily_cop_hc')),
+        cop_dhw_today: reading(s('daily_cop_dhw')),
       };
     },
     // Counters per use from firmware 4.19 on. The day counters (Wh) are finer than the totals and give "today";
@@ -1209,8 +1219,8 @@ const HFC_PRESETS = {
     controls: (p, i, ctx) => [ctx.key('thz', 'select', 'op_mode'), ctx.key('thz', 'water_heater', 'dhw'), ctx.key('thz', 'climate', 'heating_circuit')]
       .filter(Boolean),
     details: (p, i, ctx) => ['compressor_runtime_heating', 'compressor_runtime_dhw', 'compressor_runtime_cooling', 'booster_runtime_heating',
-      'booster_runtime_dhw', 'heating_hours', 'dhw_hours', 'boost_hc_total', 'boost_dhw_total', 'heat_recovered_total', 'current_cop', 'daily_cop_hc',
-      'daily_cop_dhw', 'season_mode', 'hc_op_mode', 'dhw_op_mode', 'fault_latest']
+      'booster_runtime_dhw', 'heating_hours', 'dhw_hours', 'boost_hc_total', 'boost_dhw_total', 'heat_recovered_total', 'current_cop',
+      'season_mode', 'hc_op_mode', 'fault_latest']
       .map((tk) => ctx.key('thz', 'sensor', tk)).filter((id) => id && !['unknown', 'unavailable'].includes(ctx.state(id))),
     // Operating mode select (2opmode): only setback has a chip.
     program_map: { standby: 'none', automatic: 'none', daymode: 'none', setback: 'night', dhwmode: 'none', manual: 'none', emergency: 'none' },

@@ -6,9 +6,11 @@
     "note": "Built from the register maps (translation keys per firmware 2.06 to 7.59), entity_translations.py, value_maps.py and strings.json."
   },
   "unmapped": {
-    "hc_return": "The THZ reports the return of the heat pump only, no return per heating circuit.",
     "buffer_top": "The integral units have no buffer temperature in their read map.",
-    "circulation": "The read map has no circulation pump output; the DHW pump flag is the charging pump."
+    "circulation": "The read map has no circulation pump output. dhw_pump is the unit's one pump while the diverter valve sends the flow into the DHW tank (confirmed on a real installation), not a circulation pump.",
+    "hc_volume": "Two sensors share the translation key flow_rate: block pxx0A033B (heat pump flow, used for volume) and block pxxFB offset 55 (heating circuit flow). The display registry carries no unique_id, so they cannot be told apart until the integration gives them separate keys.",
+    "hours": "The integration splits the compressor runtime into heating, hot water and cooling; no total exists. The parts are in the details.",
+    "energy_total": "Electricity is counted per use only (electr_hc_*, electr_dhw_*); no total over all uses exists. The parts are in the tiles."
   },
   "sources": [
     {

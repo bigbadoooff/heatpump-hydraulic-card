@@ -2636,6 +2636,115 @@
     o = await isg('idle'); check(/mode-idle/.test(o.mode) && o.err && /eco/.test(o.prog || ''), `Stiebel ISG standby with the error flag and the eco program (${JSON.stringify(o)})`);
   }
 
+  // 13d2. Stiebel Eltron LWZ / Tecalor THZ (integration thz, serial): entities by translation key, firmware-dependent fields left out,
+  // mode derived from the flags. Entity ids are those of the German default style of the integration; the values are invented.
+  {
+    const thzIds = {
+      sensor: {
+        outside_temp: 'aussentemperatur', flow_temp: 'vorlauftemperatur', return_temp: 'rucklauftemperatur', dhw_temp: 'warmwassertemperatur',
+        dhw_set_temp: 'warmwasser_solltemperatur', heat_temp: 'heizkreis_isttemperatur', heat_set_temp: 'heizkreis_solltemperatur',
+        inside_temp_rc: 'raumtemperatur_fernbedienung', room_set_temp: 'raum_solltemperatur', rel_humidity: 'relative_luftfeuchte',
+        actual_power_pel: 'elektrische_leistung', actual_power_qc: 'thermische_leistung', flow_rate: 'volumenstrom', pressure_hc: 'heizkreisdruck',
+        hotgas_temp: 'heissgastemperatur', evaporator_temp: 'verdampfertemperatur', condenser_temp: 'verflussigertemperatur',
+        pressure_hd: 'hochdruck', pressure_nd: 'niederdruck', compr_rel_power: 'verdichter_relative_leistung', hc_booster_stage: 'heizkreis_boosterstufe',
+        flow_temp_hc2: 'vorlauftemperatur_hk2', hc2_setpoint_temp: 'hk2_solltemperatur', hc2_mixer_valve: 'hk2_mischer', solar_collector_temp: 'solar_kollektortemperatur',
+        electr_hc_day: 'strom_heizen_tag', electr_hc_total: 'strom_heizen_gesamt', electr_dhw_day: 'strom_warmwasser_tag', electr_dhw_total: 'strom_warmwasser_gesamt',
+        heat_hc_day: 'warme_heizen_tag', heat_hc_total: 'warme_heizen_gesamt', heat_dhw_day: 'warme_warmwasser_tag', heat_dhw_total: 'warme_warmwasser_gesamt',
+        daily_cop_total: 'cop_tag_gesamt', lifetime_cop_total: 'cop_lebensdauer_gesamt', compressor_runtime_heating: 'verdichter_laufzeit_heizen',
+        fault_status: 'fehlerstatus',
+      },
+      binary_sensor: {
+        compressor: 'verdichter', defrost: 'abtauen', heating_dhw: 'warmwasserbereitung', heating_circuit_pump: 'heizkreispumpe',
+        solar_pump: 'solarpumpe', mixer_open: 'mischer_auf', mixer_closed: 'mischer_zu',
+      },
+      select: { op_mode: 'betriebsart' },
+      water_heater: { dhw: 'warmwasser' },
+      climate: { heating_circuit: 'heizkreis' },
+    };
+    const tid = (domain, tk) => `${domain}.thz_${thzIds[domain][tk]}`;
+    const reg = Object.fromEntries(Object.entries(thzIds).flatMap(([domain, tks]) => Object.keys(tks).map((tk) => [tid(domain, tk), { platform: 'thz', translation_key: tk }])));
+    const sid = (tk) => tid('sensor', tk); const bid = (tk) => tid('binary_sensor', tk);
+    const base = (scen) => {
+      const pick = (v) => v[scen];
+      const out = {
+        [sid('outside_temp')]: ['4.1', '°C'],
+        [sid('flow_temp')]: [pick({ heat: '34.2', dhw: '51.8', defrost: '23.9', idle: '29.0' }), '°C'],
+        [sid('return_temp')]: [pick({ heat: '30.1', dhw: '46.5', defrost: '25.8', idle: '28.6' }), '°C'],
+        [sid('dhw_temp')]: [pick({ heat: '46.0', dhw: '47.5', defrost: '45.8', idle: '45.6' }), '°C'], [sid('dhw_set_temp')]: ['48.0', '°C'],
+        [sid('heat_temp')]: [pick({ heat: '33.0', dhw: '30.5', defrost: '27.0', idle: '28.4' }), '°C'], [sid('heat_set_temp')]: ['32.5', '°C'],
+        [sid('inside_temp_rc')]: ['21.6', '°C'], [sid('room_set_temp')]: ['21.0', '°C'], [sid('rel_humidity')]: ['48.0', '%'],
+        [sid('actual_power_pel')]: [pick({ heat: '1150', dhw: '1600', defrost: '900', idle: '0' }), 'W'],
+        [sid('actual_power_qc')]: [pick({ heat: '4300', dhw: '4100', defrost: '0', idle: '0' }), 'W'],
+        [sid('flow_rate')]: [pick({ heat: '15.0', dhw: '14.2', defrost: '14.8', idle: '0.0' }), 'l/min'], [sid('pressure_hc')]: ['1.7', 'bar'],
+        [sid('hotgas_temp')]: [pick({ heat: '66.0', dhw: '82.0', defrost: '40.0', idle: '24.0' }), '°C'], [sid('evaporator_temp')]: ['-2.0', '°C'],
+        [sid('condenser_temp')]: ['36.0', '°C'], [sid('pressure_hd')]: ['18.2', 'bar'], [sid('pressure_nd')]: ['5.4', 'bar'],
+        [sid('compr_rel_power')]: [pick({ heat: '55', dhw: '80', defrost: '60', idle: '0' }), '%'], [sid('hc_booster_stage')]: '0',
+        [sid('electr_hc_day')]: { state: '5120', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
+        [sid('electr_hc_total')]: { state: '9120', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
+        [sid('electr_dhw_day')]: { state: '1840', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
+        [sid('electr_dhw_total')]: { state: '2480', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
+        [sid('heat_hc_day')]: { state: '19800', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
+        [sid('heat_hc_total')]: { state: '33950', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
+        [sid('heat_dhw_day')]: { state: '5100', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
+        [sid('heat_dhw_total')]: { state: '6900', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
+        [sid('daily_cop_total')]: '3.6', [sid('lifetime_cop_total')]: '3.5',
+        [sid('compressor_runtime_heating')]: ['14210', 'h'], [sid('fault_status')]: scen === 'idle' ? 'fault' : 'ok',
+        [bid('compressor')]: scen === 'idle' ? 'off' : 'on', [bid('defrost')]: scen === 'defrost' ? 'on' : 'off', [bid('heating_dhw')]: scen === 'dhw' ? 'on' : 'off',
+        [bid('heating_circuit_pump')]: scen === 'dhw' ? 'off' : 'on', [bid('solar_pump')]: 'off', [bid('mixer_open')]: 'off', [bid('mixer_closed')]: 'off',
+        [tid('select', 'op_mode')]: { state: scen === 'idle' ? 'setback' : 'automatic', attributes: { options: ['standby', 'automatic', 'daymode', 'setback', 'dhwmode', 'manual', 'emergency'] } },
+        [tid('water_heater', 'dhw')]: { state: 'performance', attributes: { current_temperature: 46.0, temperature: 48 } },
+        [tid('climate', 'heating_circuit')]: { state: 'heat', attributes: { current_temperature: 21.6, temperature: 21 } },
+      };
+      // Not installed or hidden: circuit 2 (option "Heating circuit 2" off) and the solar block.
+      [sid('flow_temp_hc2'), sid('hc2_setpoint_temp'), sid('hc2_mixer_valve'), sid('solar_collector_temp')].forEach((id) => delete out[id]);
+      return out;
+    };
+    const hass = (scen, extra = {}, registry = reg) => hassOf(toStates({ ...base(scen), ...extra }), registry);
+    const config = { preset: 'thz' };
+    check(C.getStubConfig(hass('heat')).preset === 'thz', `THZ is detected through translation keys (${JSON.stringify(C.getStubConfig(hass('heat')))})`);
+    const r = C._resolve(config, hass('heat')); const e = r.entities;
+    check(r.ready && r.prefix === '' && e.mode === undefined && e.compressor === bid('compressor') && e.defrost === bid('defrost') && e.valve === bid('heating_dhw'),
+      `THZ compressor, defrost and DHW heating flag, no mode entity (${e.compressor} / ${e.valve})`);
+    check(e.flow === sid('flow_temp') && e.return === sid('return_temp') && e.volume === sid('flow_rate') && e.outdoor === sid('outside_temp')
+      && e.power === sid('actual_power_pel') && e.heat === sid('actual_power_qc'), 'THZ flow, return, flow rate, outdoor, electrical and thermal power');
+    check(e.dhw_top === sid('dhw_temp') && e.dhw_target === sid('dhw_set_temp') && e.hc_flow === sid('heat_temp') && e.hc_setpoint === sid('heat_set_temp')
+      && e.hc_pump === bid('heating_circuit_pump') && e.hc_pressure === sid('pressure_hc'), 'THZ hot water with target, heating circuit 1 and its pressure');
+    check(e.room === sid('inside_temp_rc') && e.room_target === sid('room_set_temp') && e.room_humidity === sid('rel_humidity') && e.program === tid('select', 'op_mode'),
+      'THZ room values of the remote control and the operating mode select');
+    check(e.heater === sid('hc_booster_stage') && e.hot_gas === sid('hotgas_temp') && e.evap_temp === sid('evaporator_temp') && e.cond_temp === sid('condenser_temp')
+      && e.high_pressure === sid('pressure_hd') && e.low_pressure === sid('pressure_nd') && e.compressor_speed === sid('compr_rel_power'), 'THZ booster stage and refrigerant circuit');
+    check(e.solar_collector === undefined && e.solar_pump === undefined && e.buffer_top === undefined, 'THZ: no solar block, no solar parts; no buffer');
+    const sol = C._resolve(config, hass('heat', { [sid('solar_collector_temp')]: ['54.0', '°C'] })).entities;
+    check(sol.solar_collector === sid('solar_collector_temp') && sol.solar_pump === bid('solar_pump'), 'THZ: a reporting solar block maps collector and solar pump');
+    // Firmware 2.x: no power, heat output or flow rate field.
+    const old = C._resolve(config, hass('heat', { [sid('actual_power_pel')]: 'unavailable', [sid('actual_power_qc')]: 'unavailable', [sid('flow_rate')]: 'unavailable' })).entities;
+    check(old.power === undefined && old.heat === undefined && old.volume === undefined && old.flow === sid('flow_temp'), 'THZ 2.x: power, heat output and flow rate left out');
+    const two = C._resolve({ ...config, hc_count: 2 }, hass('heat')).entities;
+    check(two.hc2_flow === undefined && two.hc2_mixer === undefined, 'THZ: hidden circuit 2 is not mapped');
+    const two2 = C._resolve({ ...config, hc_count: 2 }, hass('heat', { [sid('flow_temp_hc2')]: ['31.0', '°C'], [sid('hc2_setpoint_temp')]: ['30.5', '°C'], [sid('hc2_mixer_valve')]: ['42', '%'] })).entities;
+    check(two2.hc2_flow === sid('flow_temp_hc2') && two2.hc2_setpoint === sid('hc2_setpoint_temp') && two2.hc2_mixer === sid('hc2_mixer_valve')
+      && two2.hc2_mixer_opening === bid('mixer_open') && two2.hc2_mixer_closing === bid('mixer_closed'), 'THZ: circuit 2 with its mixer');
+    const down = C._resolve(config, hass('heat', { [sid('outside_temp')]: 'unavailable', [sid('flow_temp')]: 'unavailable', [sid('dhw_temp')]: 'unavailable' }));
+    check(down.ready === false, 'THZ waits while no sensor reports a value');
+    const t = r.tiles;
+    check(t.energy_heating?.today === sid('electr_hc_day') && t.energy_heating?.total === sid('electr_hc_total') && t.heat_dhw?.total === sid('heat_dhw_total')
+      && t.cop_total?.total === sid('lifetime_cop_total') && t.heat_cooling === undefined, 'THZ tiles: day and total counters per use, the integration COP');
+    check(JSON.stringify(r.errors) === JSON.stringify([sid('fault_status')]) && r.controls.length === 3 && r.details.includes(sid('compressor_runtime_heating')),
+      `THZ fault status, quick controls and details (${r.controls.join()})`);
+    const thz = async (scen, extra = {}) => {
+      const card = mount(config, hass(scen, extra)); await wait(20);
+      const q = (id) => card.shadowRoot.getElementById(id);
+      const out = { mode: q('chip-mode').className, flow: q('t-vl')?.textContent, rl: q('t-rl')?.textContent, hc: q('t-hc')?.textContent,
+        prog: q('chip-program')?.className, err: q('chip-err').classList.contains('on'), ok: ok(card) };
+      card.remove(); return out;
+    };
+    let o = await thz('heat');
+    check(o.ok && /mode-heat/.test(o.mode) && /34\.2/.test(o.flow) && /30\.1/.test(o.rl) && /33/.test(o.hc) && !o.err, `THZ heating: VL 34.2, RL 30.1, circuit 33.0 (${JSON.stringify(o)})`);
+    o = await thz('dhw'); check(/mode-dhw/.test(o.mode), `THZ DHW heating flag is hot water (${o.mode})`);
+    o = await thz('defrost'); check(/mode-defrost/.test(o.mode), `THZ defrost flag (${o.mode})`);
+    o = await thz('idle'); check(/mode-idle/.test(o.mode) && o.err && /night/.test(o.prog || ''), `THZ standby with the fault status and the setback program (${JSON.stringify(o)})`);
+  }
+
   // 13e. PV surplus mode (pv_boost): chip, heating periods of the timeline, share tile, Lambda preset
   {
     const s = setups[0]; const sp = 'sensor.eu08l_emgr_power_consumption_setpoint';
@@ -3033,7 +3142,7 @@
     check(o.samsung === 1 && o.ring === 0 && o.fans === 1 && o.ok, `Samsung preset draws the EHS Mono unit (${JSON.stringify(o)})`);
     // Automatic drawing per preset, as listed in the README table "Outdoor-unit style coverage" (#151). A new preset needs an entry here.
     const unitOf = { lambda: 'lambda', vicare: 'viessmann', open3e: 'viessmann', vaillant: 'vaillant', ebusd: 'vaillant', emsesp: 'bosch', bosch_buderus_heating: 'bosch',
-      heishamon: 'panasonic', samsung: 'samsung', wolf: 'wolf', kronoterm: 'kronoterm', luxtronik: 'alpha_innotec', stiebel_isg: 'stiebel', espaltherma: 'generic' };
+      heishamon: 'panasonic', samsung: 'samsung', wolf: 'wolf', kronoterm: 'kronoterm', luxtronik: 'alpha_innotec', stiebel_isg: 'stiebel', espaltherma: 'generic', thz: 'generic' };
     const unitWrong = Object.keys(HFC_PRESETS).filter((p) => (HFC_PRESETS[p].unit_style || 'generic') !== unitOf[p]);
     check(!unitWrong.length, `every preset selects the outdoor-unit drawing the README lists (${unitWrong.join(', ') || 'all match'})`);
     check(Object.values(unitOf).every((s) => HFC_UNIT_STYLES.includes(s)), 'the expected drawings are valid unit_style values');

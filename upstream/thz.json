@@ -1,0 +1,30 @@
+{
+  "preset": "thz",
+  "reviewed": {
+    "date": "2026-11-11",
+    "version": "0.7.2-beta.1",
+    "note": "Built from the register maps (translation keys per firmware 2.06 to 7.59), entity_translations.py, value_maps.py and strings.json."
+  },
+  "unmapped": {
+    "hc_return": "The THZ reports the return of the heat pump only, no return per heating circuit.",
+    "buffer_top": "The integral units have no buffer temperature in their read map.",
+    "circulation": "The read map has no circulation pump output; the DHW pump flag is the charging pump."
+  },
+  "sources": [
+    {
+      "repo": "bigbadoooff/thz",
+      "branch": "main",
+      "paths": [
+        "custom_components/thz/register_maps/register_map_all.py",
+        "custom_components/thz/register_maps/readings_map_2xx.py",
+        "custom_components/thz/register_maps/readings_map_439.py",
+        "custom_components/thz/register_maps/readings_map_509.py",
+        "custom_components/thz/register_maps/readings_map_539.py",
+        "custom_components/thz/register_maps/register_map_manager.py",
+        "custom_components/thz/entity_translations.py",
+        "custom_components/thz/value_maps.py",
+        "custom_components/thz/strings.json"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+- New preset `thz` for Stiebel Eltron LWZ and Tecalor THZ integral units on the serial interface (USB or ser2net) through the THZ integration (`bigbadoooff/thz`). Entities are found by translation key, so entity ids, the entity-id style and the Home Assistant language do not matter. Untested on a real installation; built from the integration source.

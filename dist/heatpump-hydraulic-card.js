@@ -1113,6 +1113,109 @@ const HFC_PRESETS = {
     program_map: { emergency: 'none', ready: 'none', program: 'none', comfort: 'none', eco: 'eco', water_heating: 'none', automatic: 'none', manual: 'none' },
   },
 
+  // Stiebel Eltron LWZ / Tecalor THZ integral units (LWZ 303/403/404/504, THZ 303/304/403/404/504, LWZ 5/8 CS …) on the serial
+  // interface (USB or ser2net) through the "THZ" integration (bigbadoooff/thz, HACS, domain thz). Built from the integration source:
+  // every entity carries a translation key, so entity ids, the entity-id style option and the HA language do not matter. The read map
+  // depends on the firmware (2.06/2.14, 4.19/4.39, 5.09/5.39/7.59): energy counters, electrical and thermal power exist from 4.19 on,
+  // flow rate, dew points, compressor power and the HC2 room temperature from 5.09 on. Entities of hidden groups (HC2, boosters) are
+  // disabled by default and simply not found. No operating mode entity: the card derives the mode from compressor, defrost and the
+  // DHW heating flag; cooling is not shown.
+  thz: {
+    name: 'Stiebel Eltron LWZ / Tecalor THZ (serial, THZ integration)',
+    // The integral units have no outdoor unit like the WPL-A; the split units (LWZ 5/8 CS) vary.
+    unit_style: 'generic',
+    dynamic: true,
+    auto_circuits: false,
+    detect: (ctx) => (['outside_temp', 'flow_temp', 'dhw_temp'].some((tk) => ctx.key('thz', 'sensor', tk)) ? '' : undefined),
+    // While the serial line is down every sensor is unavailable and the optional parts cannot be told apart: wait for a value.
+    ready: (ctx) => ['outside_temp', 'flow_temp', 'dhw_temp']
+      .some((tk) => Number.isFinite(parseFloat(ctx.state(ctx.key('thz', 'sensor', tk))))),
+    entities: (p, i, ctx) => {
+      const k = (domain, ...tks) => tks.map((tk) => ctx.key('thz', domain, tk)).filter(Boolean);
+      const s = (...tks) => k('sensor', ...tks);
+      const b = (...tks) => k('binary_sensor', ...tks);
+      const reading = (ids) => ids.filter((id) => Number.isFinite(parseFloat(ctx.state(id))));
+      const n = i.hc;
+      // Solar parts only where the solar block (pxx16) answers: the collector field of the status block exists on every unit.
+      const solar = reading(s('solar_collector_temp'));
+      if (n === 2) {
+        // Circuit 2 (mixed circuit): its entities are hidden until the integration's "Heating circuit 2" option is on.
+        const flow2 = reading(s('flow_temp_hc2'));
+        return flow2.length ? {
+          hc_flow: flow2,
+          hc_setpoint: s('hc2_setpoint_temp'),
+          hc_mixer: reading(s('hc2_mixer_valve')),
+          hc_mixer_opening: b('mixer_open'),
+          hc_mixer_closing: b('mixer_closed'),
+          hc_room: reading(s('inside_temp_rc_hc2')),
+          hc_room_humidity: reading(s('rel_humidity_hc2')),
+          hc_dew_point: reading(s('dew_point_hc2')),
+        } : {};
+      }
+      if (n !== 1) return {};
+      return {
+        compressor: b('compressor'),
+        defrost: b('defrost'),
+        // DHW heating flag of the operating status (pxx0A0176): on while the unit heats hot water.
+        valve: b('heating_dhw'),
+        // Electrical and thermal power (W) from firmware 4.19 on; the 2.x maps have no such field.
+        power: reading(s('actual_power_pel')),
+        heat: reading(s('actual_power_qc')),
+        flow: s('flow_temp'),
+        return: s('return_temp'),
+        volume: reading(s('flow_rate')),
+        outdoor: s('outside_temp'),
+        // Booster (electric inline heater): its stage (0 to 3) or the booster flag; both are disabled by default.
+        heater: s('hc_booster_stage').length ? s('hc_booster_stage') : b('booster_hc'),
+        dhw_top: s('dhw_temp'),
+        dhw_target: s('dhw_set_temp'),
+        solar_collector: solar,
+        ...(solar.length ? { solar_pump: b('solar_pump') } : {}),
+        hc_flow: s('heat_temp'),
+        hc_setpoint: s('heat_set_temp'),
+        hc_pump: b('heating_circuit_pump', 'pump_hc'),
+        hc_pressure: reading(s('pressure_hc')),
+        // Room values of the remote control (FEK, FE7) first, else the inside sensor of the status block.
+        room: reading(s('inside_temp_rc', 'inside_temp')),
+        room_target: reading(s('room_set_temp')),
+        room_humidity: reading(s('rel_humidity')),
+        dew_point: reading(s('dew_point_hc1', 'dew_point')),
+        program: k('select', 'op_mode'),
+        compressor_speed: reading(s('compr_rel_power')),
+        hot_gas: reading(s('hotgas_temp')),
+        evap_temp: reading(s('evaporator_temp')),
+        cond_temp: reading(s('condenser_temp')),
+        high_pressure: reading(s('pressure_hd')),
+        low_pressure: reading(s('pressure_nd')),
+      };
+    },
+    // Counters per use from firmware 4.19 on. The day counters (Wh) are finer than the totals and give "today";
+    // the other periods come from the long-term statistics of the totals.
+    tiles: (p, i, ctx) => {
+      const s = (tk) => ctx.key('thz', 'sensor', tk);
+      const t = (day, total) => ({ ...(s(day) ? { today: s(day) } : {}), total: s(total) });
+      return {
+        energy_heating: t('electr_hc_day', 'electr_hc_total'),
+        energy_dhw: t('electr_dhw_day', 'electr_dhw_total'),
+        heat_heating: t('heat_hc_day', 'heat_hc_total'),
+        heat_dhw: t('heat_dhw_day', 'heat_dhw_total'),
+        heat_cooling: { total: s('cool_hc_total') },
+        // The integration's own COP of heating and hot water together (no combined counters exist).
+        cop_total: { today: s('daily_cop_total'), total: s('lifetime_cop_total') },
+      };
+    },
+    errors: (p, i, ctx) => [ctx.key('thz', 'sensor', 'fault_status')].filter(Boolean),
+    error_ok: ['ok'],
+    controls: (p, i, ctx) => [ctx.key('thz', 'select', 'op_mode'), ctx.key('thz', 'water_heater', 'dhw'), ctx.key('thz', 'climate', 'heating_circuit')]
+      .filter(Boolean),
+    details: (p, i, ctx) => ['compressor_runtime_heating', 'compressor_runtime_dhw', 'compressor_runtime_cooling', 'booster_runtime_heating',
+      'booster_runtime_dhw', 'heating_hours', 'dhw_hours', 'boost_hc_total', 'boost_dhw_total', 'heat_recovered_total', 'current_cop', 'daily_cop_hc',
+      'daily_cop_dhw', 'season_mode', 'hc_op_mode', 'dhw_op_mode', 'fault_latest']
+      .map((tk) => ctx.key('thz', 'sensor', tk)).filter((id) => id && !['unknown', 'unavailable'].includes(ctx.state(id))),
+    // Operating mode select (2opmode): only setback has a chip.
+    program_map: { standby: 'none', automatic: 'none', daymode: 'none', setback: 'night', dhwmode: 'none', manual: 'none', emergency: 'none' },
+  },
+
   // Vaillant aroTHERM / aroTHERM plus (HMU) on the eBUS via ebusd and its Home Assistant MQTT discovery.
   // Entity ids are <topic prefix>_<circuit>_<message>[_<field>]; Home Assistant may put the device name in front
   // (sensor.heating_ebusd_hmu_…), so every lookup accepts a leading part. Circuits: hmu (outdoor unit), vwzio (hydraulic

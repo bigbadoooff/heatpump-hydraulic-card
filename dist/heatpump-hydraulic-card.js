@@ -1167,9 +1167,10 @@ const HFC_PRESETS = {
         outdoor: s('outside_temp'),
         // Main ventilator speed (Hz) of the integral unit.
         fan_speed: reading(s('main_ventilator_speed')),
-        // Booster (electric inline heater): its stage (0 to 3), else the heat stage control of block pxxF2 (enabled by default),
-        // else the booster flag. The stage and the flag are disabled by default.
-        heater: [...s('hc_booster_stage', 'heat_stage_control_modul'), ...b('booster_hc')],
+        // Booster (electric inline heater): the booster flag of the status block only (disabled by default). The stage fields
+        // hc_booster_stage and heat_stage_control_modul read 2 whenever the compressor runs, at 0.6 kW for the whole unit, so
+        // they are not the inline heater; they stay in the details.
+        heater: b('booster_hc'),
         dhw_top: s('dhw_temp'),
         dhw_target: s('dhw_set_temp'),
         // Operating mode of the hot water side (block pxxF3), shown as text; its states never mean "heating hot water now".
@@ -1220,7 +1221,7 @@ const HFC_PRESETS = {
       .filter(Boolean),
     details: (p, i, ctx) => ['compressor_runtime_heating', 'compressor_runtime_dhw', 'compressor_runtime_cooling', 'booster_runtime_heating',
       'booster_runtime_dhw', 'heating_hours', 'dhw_hours', 'boost_hc_total', 'boost_dhw_total', 'heat_recovered_total', 'current_cop',
-      'season_mode', 'hc_op_mode', 'fault_latest']
+      'season_mode', 'hc_op_mode', 'hc_booster_stage', 'heat_stage_control_modul', 'fault_latest']
       .map((tk) => ctx.key('thz', 'sensor', tk)).filter((id) => id && !['unknown', 'unavailable'].includes(ctx.state(id))),
     // Operating mode select (2opmode): only setback has a chip.
     program_map: { standby: 'none', automatic: 'none', daymode: 'none', setback: 'night', dhwmode: 'none', manual: 'none', emergency: 'none' },

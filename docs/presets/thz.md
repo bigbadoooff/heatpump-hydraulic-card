@@ -23,7 +23,7 @@ What you get depends on the firmware the integration detects:
 
 Some entities are disabled by default in the integration and are then not found:
 - circuit 2: switch on the option "Heating circuit 2" of the integration;
-- the booster stage (`hc_booster_stage`): visibility tier "extended" or enable the entity by hand.
+- the booster flag (`booster_hc`): enable the entity by hand, else the card shows no booster.
 
 With the integration's option "Split into sub-devices" (on for new entries) the entities belong to several devices (heating, hot water, compressor …). Do not set `device` then: it would restrict the preset to one of them.
 
@@ -45,13 +45,13 @@ The integration has no operating-state sensor that the card can read as a mode: 
 - Heating circuit 1: `hc_flow` from `heat_temp`, `hc_setpoint` from `heat_set_temp` (block pxxF4), `hc_pump` from `heating_circuit_pump`, else `pump_hc`. `hc_pressure`: `pressure_hc` where it reports.
 - `room` / `room_target`: `inside_temp_rc` (remote control FEK / FE7), else `inside_temp`, and `room_set_temp`. `room_humidity`: `rel_humidity`. `dew_point`: `dew_point_hc1`, else `dew_point`.
 - Heating circuit 2 (mixed circuit): `flow_temp_hc2`, `hc2_setpoint_temp`, the mixer position `hc2_mixer_valve` and the motor outputs `mixer_open` / `mixer_closed`; the room temperature `inside_temp_rc_hc2`, humidity `rel_humidity_hc2`, dew point `dew_point_hc2`. Circuit 2 counts when `flow_temp_hc2` reports a number; set `hc_count: 2`.
-- `heater`: the booster stage `hc_booster_stage` (0 to 3), else the heat stage control `heat_stage_control_modul` (block pxxF2, enabled by default; real installation), else the booster flag `booster_hc`.
+- `heater`: the booster flag `booster_hc` (block pxx0A0176) only. The stage fields `hc_booster_stage` (block pxxF4) and `heat_stage_control_modul` (block pxxF2) are not the electric inline heater: on a real installation both read 2 whenever the compressor ran, while the whole unit drew 0.55 to 0.74 kW and `booster_hc` stayed off. Two heater stages alone would draw several kW. Both stage fields are in the details.
 - Solar thermal: `solar_collector` from `solar_collector_temp` and `solar_pump`, only when the solar block (pxx16) reports a value. The collector field of the status block exists on every unit and is not used.
 - Refrigerant circuit: `hotgas_temp`, `evaporator_temp`, `condenser_temp`, `pressure_hd`, `pressure_nd`, `compr_rel_power` (%, 5.39) as compressor speed.
 - `program`: the select `op_mode`; `setback` shows the night chip.
 - `errors`: the sensor `fault_status` (`ok` / `fault`); `error_ok: ['ok']`.
 - Quick controls: the select `op_mode`, the water heater `dhw` and the climate entity `heating_circuit`.
-- Details: the compressor and booster runtimes, the booster energy, the recovered heat, the integration's current COP, season mode, the operating mode of the circuit, the latest fault; each where it reports.
+- Details: the compressor and booster runtimes, the booster energy, the recovered heat, the integration's current COP, season mode, the operating mode of the circuit, the two stage fields `hc_booster_stage` and `heat_stage_control_modul`, the latest fault; each where it reports.
 - Tiles: electricity and heat per use (`electr_hc_*`, `electr_dhw_*`, `heat_hc_*`, `heat_dhw_*`): the day counters (Wh, corrected by the integration at the device's midnight reset) give "today", the totals (kWh) the other periods from long-term statistics. `heat_cooling` from `cool_hc_total`. `cop_total` from the integration's `daily_cop_total` and `lifetime_cop_total`.
 
 ## Deliberately not mapped

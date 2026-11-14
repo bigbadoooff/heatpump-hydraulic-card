@@ -32,6 +32,9 @@ const HFC_SCRIPT_URL = (() => {
 //   *_mode_map                 → raw state → normalized mode
 //   sg_ready_map               → raw state → normal | blocked | boost | forced
 //   valve_map                  → raw state of the `valve` entity → dhw | heating (default: on, Tank, DHW … mean hot water)
+//   heater_map                 → numeric state of the `heater` entity → heater stage 1 to 3; any other number is off. For
+//                                stage fields that also count other heat sources (THZ: 2 = heat pump, 3 to 5 = booster).
+//                                On-states of a binary fallback still mean stage 1.
 // ctx.key(platform, domain, translation_key) finds entities via the entity registry (language-independent),
 // ctx.match(regex, platform) finds the first entity id matching a pattern, ctx.state(entity_id) reads a current state.
 // PointT uses stable resource keys in unique_id; entity ids can be translated or renamed.
@@ -1167,10 +1170,10 @@ const HFC_PRESETS = {
         outdoor: s('outside_temp'),
         // Main ventilator speed (Hz) of the integral unit.
         fan_speed: reading(s('main_ventilator_speed')),
-        // Booster (electric inline heater): the booster flag of the status block only (disabled by default). The stage fields
-        // hc_booster_stage and heat_stage_control_modul read 2 whenever the compressor runs, at 0.6 kW for the whole unit, so
-        // they are not the inline heater; they stay in the details.
-        heater: b('booster_hc'),
+        // Booster (electric inline heater, for heating and hot water): the heat stage control of block pxxF2 (enabled by
+        // default), which follows hcStage or dhwStage by the heat request: 0 off, 1 solar, 2 heat pump, 3 to 5 booster stage 1
+        // to 3 (heater_map). Else the booster flag of the status block (disabled by default), which is on for both uses.
+        heater: [...s('heat_stage_control_modul'), ...b('booster_hc')],
         dhw_top: s('dhw_temp'),
         dhw_target: s('dhw_set_temp'),
         // Operating mode of the hot water side (block pxxF3), shown as text; its states never mean "heating hot water now".
@@ -1221,10 +1224,12 @@ const HFC_PRESETS = {
       .filter(Boolean),
     details: (p, i, ctx) => ['compressor_runtime_heating', 'compressor_runtime_dhw', 'compressor_runtime_cooling', 'booster_runtime_heating',
       'booster_runtime_dhw', 'heating_hours', 'dhw_hours', 'boost_hc_total', 'boost_dhw_total', 'heat_recovered_total', 'current_cop',
-      'season_mode', 'hc_op_mode', 'hc_booster_stage', 'heat_stage_control_modul', 'fault_latest']
+      'season_mode', 'hc_op_mode', 'hc_stage', 'dhw_stage', 'fault_latest']
       .map((tk) => ctx.key('thz', 'sensor', tk)).filter((id) => id && !['unknown', 'unavailable'].includes(ctx.state(id))),
     // Operating mode select (2opmode): only setback has a chip.
     program_map: { standby: 'none', automatic: 'none', daymode: 'none', setback: 'night', dhwmode: 'none', manual: 'none', emergency: 'none' },
+    // Heat stage control (pxxF2): 2 is the heat pump, 3 to 5 the booster stages.
+    heater_map: { 3: 1, 4: 2, 5: 3 },
   },
 
   // Vaillant aroTHERM / aroTHERM plus (HMU) on the eBUS via ebusd and its Home Assistant MQTT discovery.
@@ -2599,7 +2604,7 @@ const hfcValveSide = (v) => HFC_VALVE_SIDES[String(v ?? '').trim().toLowerCase()
 const HFC_DRAWING_KEYS = ['title', 'hc_type', 'hc2_type', 'hc3_type', 'hc4_type', 'hc5_type', 'hc6_type', 'hc_name', 'hc2_name', 'hc3_name', 'hc4_name',
   'hc5_name', 'hc6_name', 'unit_style', 'unit_size', 'source_spread', 'narrow_values', 'buffer_values', 'timeline'];
 // Value maps of a preset or the configuration, listed in the diagnostic report.
-const HFC_MAP_KEYS = ['valve_map', 'mode_map', 'dhw_mode_map', 'buffer_mode_map', 'hc_mode_map', 'program_map', 'sg_ready_map'];
+const HFC_MAP_KEYS = ['valve_map', 'mode_map', 'dhw_mode_map', 'buffer_mode_map', 'hc_mode_map', 'program_map', 'sg_ready_map', 'heater_map'];
 // How the tap water is heated: a coil in the tank, a fresh-water station on the storage, or a tank in the combined storage.
 const HFC_DHW_TYPES = ['coil', 'fresh_water', 'tank_in_tank'];
 // Drawing of the outdoor unit: `auto` takes the style of the preset; `unit_size` picks the Vaillant aroTHERM plus class.
@@ -3211,6 +3216,7 @@ class HeatpumpFlowCard extends HTMLElement {
       sg: { ...HFC_SG_READY_MAP, ...(preset?.sg_ready_map || {}), ...(config.sg_ready_map || {}) },
       // The keys are lower case, so a state matches whatever case the key was written in; the values are dhw or heating.
       valve: Object.fromEntries(Object.entries({ ...(preset?.valve_map || {}), ...(config.valve_map || {}) }).map(([k, v]) => [String(k).toLowerCase(), hfcValveSide(v)])),
+      heater: preset?.heater_map || null,
     };
     this._runningStates = config.running_states || preset?.running_states || [];
     this._statusLabels = preset?.status_labels || {};
@@ -3999,7 +4005,15 @@ class HeatpumpFlowCard extends HTMLElement {
     if (['on', 'true', 'open', 'ein'].includes(s)) return 1;
     const v = parseFloat(s);
     if (!Number.isFinite(v) || v <= 0) return 0;
+    if (key === 'heater') { const lv = this._heaterMapped(s); if (lv !== undefined) return lv; }
     return ['w', 'kw', '%'].includes(this._unit(key)) ? 1 : Math.min(Math.round(v), 3);
+  }
+  // A preset's heater_map turns a numeric state of the heater into a stage 0 to 3; numbers not in it (off, other heat sources)
+  // are 0. undefined without a map or for a state that is not a number (an on-state of a binary fallback).
+  _heaterMapped(state) {
+    const v = parseFloat(state);
+    if (!this._maps?.heater || !Number.isFinite(v)) return undefined;
+    return Math.min(Math.max(+this._maps.heater[String(Math.round(v))] || 0, 0), 3);
   }
   _hk(n, key) { return n === 1 ? `hc_${key}` : `hc${n}_${key}`; }
   _norm(map, raw) { if (raw === undefined) return ''; return map[raw] || map[String(raw).toUpperCase()] || map[String(raw).toLowerCase()] || String(raw).toLowerCase(); }
@@ -6163,11 +6177,13 @@ class HeatpumpFlowCard extends HTMLElement {
     // unknown, not off.
     const onTime = (key) => {
       const ss = states(key); const spans = []; let starts = 0;
+      // A preset's heater_map decides for numbers of the heater (THZ: stage 2 is the heat pump, not the booster).
+      const isOn = (s) => { const lv = key === 'heater' ? this._heaterMapped(s) : undefined; return lv === undefined ? on(s) : lv > 0; };
       ss.forEach((e, n) => {
-        if (!on(e.s)) return;
+        if (!isOn(e.s)) return;
         const a = Math.max(e.t, run.from); const b = Math.min(ss[n + 1]?.t ?? run.to, run.to);
         if (b > a) spans.push([a, b]);
-        if (e.t >= run.from && !(n > 0 && on(ss[n - 1].s))) starts++;
+        if (e.t >= run.from && !(n > 0 && isOn(ss[n - 1].s))) starts++;
       });
       return { spans, starts, known: ss.length > 0 };
     };

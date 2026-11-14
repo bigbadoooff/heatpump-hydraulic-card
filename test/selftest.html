@@ -2654,7 +2654,7 @@
         fault_status: 'fehlerstatus',
         // Entity ids of a real installation (German default style).
         main_ventilator_speed: 'hauptventilator_drehzahl', heat_stage_control_modul: 'heizstufensteuerung', dhw_op_mode: 'warmwasser_betriebsmodus',
-        daily_cop_hc: 'taglicher_cop_heizung', daily_cop_dhw: 'taglicher_cop_warmwasser',
+        daily_cop_hc: 'taglicher_cop_heizung', daily_cop_dhw: 'taglicher_cop_warmwasser', hc_stage: 'heizkreis_stufe', dhw_stage: 'warmwasser_stufe',
       },
       binary_sensor: {
         compressor: 'verdichter', defrost: 'abtauen', heating_dhw: 'warmwasserbereitung', heating_circuit_pump: 'heizkreispumpe',
@@ -2682,8 +2682,9 @@
         [sid('hotgas_temp')]: [pick({ heat: '66.0', dhw: '82.0', defrost: '40.0', idle: '24.0' }), '°C'], [sid('evaporator_temp')]: ['-2.0', '°C'],
         [sid('condenser_temp')]: ['36.0', '°C'], [sid('pressure_hd')]: ['18.2', 'bar'], [sid('pressure_nd')]: ['5.4', 'bar'],
         [sid('compr_rel_power')]: [pick({ heat: '55', dhw: '80', defrost: '60', idle: '0' }), '%'],
-        // The stage fields read 2 whenever the compressor runs (real installation), while the booster flag stays off.
+        // The stage fields read 2 (heat pump) whenever the compressor runs (real installation), while the booster flag stays off.
         [sid('hc_booster_stage')]: scen === 'idle' ? '0' : '2', [bid('booster_hc')]: 'off',
+        [sid('hc_stage')]: scen === 'heat' || scen === 'defrost' ? '2.0' : '0.0', [sid('dhw_stage')]: scen === 'dhw' ? '2.0' : '0.0',
         [sid('electr_hc_day')]: { state: '5120', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
         [sid('electr_hc_total')]: { state: '9120', attributes: { unit_of_measurement: 'kWh', state_class: 'total_increasing' } },
         [sid('electr_dhw_day')]: { state: '1840', attributes: { unit_of_measurement: 'Wh', state_class: 'total_increasing' } },
@@ -2719,7 +2720,7 @@
       && e.hc_pump === bid('heating_circuit_pump') && e.hc_pressure === sid('pressure_hc'), 'THZ hot water with target, heating circuit 1 and its pressure');
     check(e.room === sid('inside_temp_rc') && e.room_target === sid('room_set_temp') && e.room_humidity === sid('rel_humidity') && e.program === tid('select', 'op_mode'),
       'THZ room values of the remote control and the operating mode select');
-    check(e.heater === bid('booster_hc') && e.hot_gas === sid('hotgas_temp') && e.evap_temp === sid('evaporator_temp') && e.cond_temp === sid('condenser_temp')
+    check(e.heater === sid('heat_stage_control_modul') && e.hot_gas === sid('hotgas_temp') && e.evap_temp === sid('evaporator_temp') && e.cond_temp === sid('condenser_temp')
       && e.high_pressure === sid('pressure_hd') && e.low_pressure === sid('pressure_nd') && e.compressor_speed === sid('compr_rel_power'), 'THZ booster stage and refrigerant circuit');
     check(e.solar_collector === undefined && e.solar_pump === undefined && e.buffer_top === undefined, 'THZ: no solar block, no solar parts; no buffer');
     const sol = C._resolve(config, hass('heat', { [sid('solar_collector_temp')]: ['54.0', '°C'] })).entities;
@@ -2747,10 +2748,23 @@
       'THZ: the mapped daily COP and hot water mode are not repeated in the details');
     check(e.circulation === undefined && e.hours === undefined && e.energy_total === undefined && e.energy_today === undefined && e.hc_volume === undefined,
       'THZ: no circulation (dhw_pump is the charging pump), no totals over all uses, no circuit flow rate');
-    check(r.details.includes(sid('hc_booster_stage')) && r.details.includes(sid('heat_stage_control_modul')),
-      'THZ: the stage fields are in the details, not the heater');
-    const noFlag = C._resolve(config, hassOf(toStates(Object.fromEntries(Object.entries(base('heat')).filter(([id]) => id !== bid('booster_hc')))), reg)).entities;
-    check(noFlag.heater === undefined, `THZ: without the booster flag no stage field becomes the heater (${noFlag.heater})`);
+    check(r.details.includes(sid('hc_stage')) && r.details.includes(sid('dhw_stage')) && !r.details.includes(sid('heat_stage_control_modul')),
+      'THZ: the stage of each use is in the details, the mapped heat stage control is not repeated');
+    const noStage = C._resolve(config, hassOf(toStates(Object.fromEntries(Object.entries(base('heat')).filter(([id]) => id !== sid('heat_stage_control_modul')))), reg)).entities;
+    check(noStage.heater === bid('booster_hc'), `THZ: without the heat stage control the booster flag is the heater (${noStage.heater})`);
+    // heater_map: 2 is the heat pump (heater off), 3 to 5 the booster stages 1 to 3; the binary fallback still means stage 1.
+    const rod = async (scen, extra, registry = reg) => {
+      const card = mount(config, hassOf(toStates({ ...base(scen), ...extra }), registry)); await wait(20);
+      const el = card.shadowRoot.getElementById('heater-inline');
+      const out = el ? `${el.classList.contains('on') ? 'on' : 'off'}${el.classList.contains('stage2') ? '2' : ''}` : 'none';
+      card.remove(); return out;
+    };
+    const hp = await rod('heat', {}); const s1 = await rod('dhw', { [sid('heat_stage_control_modul')]: '3.0' });
+    const s2 = await rod('dhw', { [sid('heat_stage_control_modul')]: '4.0' });
+    const regNoStage = Object.fromEntries(Object.entries(reg).filter(([id]) => id !== sid('heat_stage_control_modul')));
+    const flag = await rod('dhw', { [bid('booster_hc')]: 'on' }, regNoStage);
+    check(hp === 'off' && s1 === 'on' && s2 === 'on2' && flag === 'on',
+      `THZ heater_map: stage 2 is the heat pump, 3 is booster stage 1, 4 stage 2; the booster flag is stage 1 (${hp} / ${s1} / ${s2} / ${flag})`);
     const twoHc = C._resolve({ ...config, hc_count: 2 }, hass('heat', { [sid('flow_temp_hc2')]: ['31.0', '°C'] })).entities;
     check(twoHc.hc2_return === undefined, 'THZ: the heat pump return is not given to circuit 2');
     const thz = async (scen, extra = {}) => {

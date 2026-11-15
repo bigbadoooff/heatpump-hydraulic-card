@@ -33,7 +33,8 @@ The integration has no operating-state sensor that the card can read as a mode: 
 
 ## Mapped
 
-- `compressor`, `defrost`, `valve`: binary sensors `compressor`, `defrost`, `heating_dhw` (block pxx0A0176).
+- `compressor`, `defrost`, `valve`: binary sensors `compressor`, `defrost`, `heating_dhw` (block pxx0A0176). The binary sensor `diverter_valve` is not the hot water valve: on a real installation it switched for about ten minutes with every defrost (it is the reversing valve), while `dhw_pump` ran with `heating_dhw`.
+- `sg_ready`: the utility lock flag `evu_release` (block pxx0A0176) with `sg_ready_map` `on` → blocked, `off` → normal. Despite its name it is on while the utility cuts the supply of the heat pump (owner of a real installation); the card shows the utility lock chip and the locked periods in the timeline.
 - `flow` / `return`: `flow_temp` / `return_temp` (the heat pump). `volume`: `flow_rate` (l/min, 5.x only). See "Open questions" for the second `flow_rate` sensor.
 - `hc_return` (circuit 1): `return_temp` as well. The THZ reports the return of the heat pump only, and circuit 1 is fed by the heat pump directly (real installation, underfloor circuit).
 - `fan_speed`: `main_ventilator_speed` (Hz) (real installation).
@@ -42,7 +43,7 @@ The integration has no operating-state sensor that the card can read as a mode: 
 - `power` / `heat`: `actual_power_pel` / `actual_power_qc` (W, from 4.19 on). With both the card shows the live COP.
 - `outdoor`: `outside_temp`.
 - `dhw_top` / `dhw_target`: `dhw_temp` / `dhw_set_temp`.
-- Heating circuit 1: `hc_flow` from `heat_temp`, `hc_setpoint` from `heat_set_temp` (block pxxF4), `hc_pump` from `heating_circuit_pump`, else `pump_hc`. `hc_pressure`: `pressure_hc` where it reports.
+- Heating circuit 1: `hc_flow` from `heat_temp`, `hc_setpoint` from `heat_set_temp` (block pxxF4), `hc_pump` from `heating_circuit_pump`, else `pump_hc`. `hc_pressure`: `pressure_hc` where it reports. `hc_curve_offset`: the number `low_end_hc1` (low end of the heating curve, K), which shifts the curve; the card then shows the target as curve plus shift above the pump and the circuit flow below it. Circuit 2 takes `low_end_hc2`.
 - `room` / `room_target`: `inside_temp_rc` (remote control FEK / FE7), else `inside_temp`, and `room_set_temp`. `room_humidity`: `rel_humidity`. `dew_point`: `dew_point_hc1`, else `dew_point`.
 - Heating circuit 2 (mixed circuit): `flow_temp_hc2`, `hc2_setpoint_temp`, the mixer position `hc2_mixer_valve` and the motor outputs `mixer_open` / `mixer_closed`; the room temperature `inside_temp_rc_hc2`, humidity `rel_humidity_hc2`, dew point `dew_point_hc2`. Circuit 2 counts when `flow_temp_hc2` reports a number; set `hc_count: 2`.
 - `heater` (the electric inline heater, which serves heating and hot water): the heat stage control `heat_stage_control_modul` (block pxxF2, enabled by default). It follows `hc_stage` or `dhw_stage` by the heat request, coded 0 off, 1 solar, 2 heat pump, 3 to 5 booster stage 1 to 3 (comments of the integration's register map, after FHEM). The preset's `heater_map` (3 → 1, 4 → 2, 5 → 3, every other number off) turns this into heater stages, also in the run details. Else the booster flag `booster_hc` (block pxx0A0176); despite its name it is on for the hot water booster as well. `hc_stage` and `dhw_stage` are in the details. Real installation: the stage fields read 2 on every compressor run with `booster_hc` off; on a hot water boost `dhw_stage` went to 3 and then 4, the heat stage control to 3 and `booster_hc` on. `actual_power_pel` does not include the booster: it read 0 while the booster heated alone. `hc_booster_stage` (block pxxF4) is not used: it read 2 like the others, and its coding is not documented.
@@ -60,7 +61,9 @@ The integration has no operating-state sensor that the card can read as a mode: 
 - `buffer_*`: the read map has no buffer temperature.
 - `circulation`: the read map has no circulation pump output. `dhw_pump` is the unit's one pump while the diverter valve sends the flow into the DHW tank (real installation), not a circulation pump.
 - `hc_volume`: see "Open questions".
-- `hours`, `aux_hours`: the integration splits the runtimes into heating, hot water and cooling; they are in the details. Mapping one part would show it as the total.
+- `hours`, `aux_hours`: the integration splits the runtimes into heating, hot water and cooling; they are in the details. Mapping one part would show it as the total. These sensors (`compressor_runtime_*`, `booster_runtime_*`) report hours, although their German names say "starts".
+- `hc_mode`: `hc_op_mode` (`normal`, `setback`, `standby`, `restart`) is the program of the circuit, not whether it heats. As `hc_mode` it would replace "running" from the circuit pump at the circuit; it stays in the details.
+- `cutout_*`: the card expects event counters. The THZ has only the state flags `high_pressure_sensor`, `low_pressure_sensor` and `stb`.
 - `energy_total` / `energy_today` and heat totals over all uses: the integration has them per use only; they are in the tiles.
 - The ventilation of the integral units (fan stages, air flows, filters): no matching card key.
 
@@ -69,7 +72,7 @@ The integration has no operating-state sensor that the card can read as a mode: 
 - Two sensors carry the translation key `flow_rate`: block pxx0A033B (`sflowrate`) is the heat pump flow and reports while the compressor runs; block pxxFB offset 55 (`flowrate`) is the heating circuit flow and drops to 0 when the circuit pump stops (real installation). The display registry has no `unique_id`, so the preset cannot tell them apart and `volume` takes the first one found. Once the integration gives the circuit flow its own key, it becomes `hc_volume`.
 
 - `hc_stage` read 1 (solar in the coding) for periods on a unit without solar thermal, and `dhw_stage` went to 4 although FHEM calls 3 "boostMax". Both stay off in `heater_map` or map to a booster stage as coded; a real booster run on heating would confirm 3 to 5.
-- Does `heating_dhw` switch off as soon as the diverter valve returns to heating? The binary sensor `diverter_valve` is the alternative.
+- `evu_release` stayed off during the days observed; a real utility lock has not been seen in the card yet.
 - Is `heat_temp` the flow of circuit 1 on every unit, or the heat pump flow on units without a mixer?
 - Do the units without solar thermal answer the solar block (pxx16) with plausible numbers?
 

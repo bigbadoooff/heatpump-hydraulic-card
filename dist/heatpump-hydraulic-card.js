@@ -1147,6 +1147,7 @@ const HFC_PRESETS = {
         return flow2.length ? {
           hc_flow: flow2,
           hc_setpoint: s('hc2_setpoint_temp'),
+          hc_curve_offset: k('number', 'low_end_hc2'),
           hc_mixer: reading(s('hc2_mixer_valve')),
           hc_mixer_opening: b('mixer_open'),
           hc_mixer_closing: b('mixer_closed'),
@@ -1170,6 +1171,8 @@ const HFC_PRESETS = {
         outdoor: s('outside_temp'),
         // Main ventilator speed (Hz) of the integral unit.
         fan_speed: reading(s('main_ventilator_speed')),
+        // Utility lock of the status block (sGlobal evuRelease): on while the utility cuts the heat pump's supply (sg_ready_map).
+        sg_ready: b('evu_release'),
         // Booster (electric inline heater, for heating and hot water): the heat stage control of block pxxF2 (enabled by
         // default), which follows hcStage or dhwStage by the heat request: 0 off, 1 solar, 2 heat pump, 3 to 5 booster stage 1
         // to 3 (heater_map). Else the booster flag of the status block (disabled by default), which is on for both uses.
@@ -1184,6 +1187,8 @@ const HFC_PRESETS = {
         // The THZ reports the return of the heat pump only; circuit 1 is fed by the heat pump directly (no buffer in the read map).
         hc_return: s('return_temp'),
         hc_setpoint: s('heat_set_temp'),
+        // Low end of the heating curve (K, setting of block p14): it shifts the curve of circuit 1.
+        hc_curve_offset: k('number', 'low_end_hc1'),
         hc_pump: b('heating_circuit_pump', 'pump_hc'),
         hc_pressure: reading(s('pressure_hc')),
         // Room values of the remote control (FEK, FE7) first, else the inside sensor of the status block.
@@ -1230,6 +1235,8 @@ const HFC_PRESETS = {
     program_map: { standby: 'none', automatic: 'none', daymode: 'none', setback: 'night', dhwmode: 'none', manual: 'none', emergency: 'none' },
     // Heat stage control (pxxF2): 2 is the heat pump, 3 to 5 the booster stages.
     heater_map: { 3: 1, 4: 2, 5: 3 },
+    // evu_release is on while the utility lock is active, despite its name.
+    sg_ready_map: { on: 'blocked', off: 'normal' },
   },
 
   // Vaillant aroTHERM / aroTHERM plus (HMU) on the eBUS via ebusd and its Home Assistant MQTT discovery.

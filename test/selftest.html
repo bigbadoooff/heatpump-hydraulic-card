@@ -2659,7 +2659,9 @@
       binary_sensor: {
         compressor: 'verdichter', defrost: 'abtauen', heating_dhw: 'warmwasserbereitung', heating_circuit_pump: 'heizkreispumpe',
         solar_pump: 'solarpumpe', mixer_open: 'mischer_auf', mixer_closed: 'mischer_zu', booster_hc: 'zusatzheizung_hk',
+        evu_release: 'evu_freigabe',
       },
+      number: { low_end_hc1: 'heizkurve_fusspunkt_hk1', low_end_hc2: 'heizkurve_fusspunkt_hk2' },
       select: { op_mode: 'betriebsart' },
       water_heater: { dhw: 'warmwasser' },
       climate: { heating_circuit: 'heizkreis' },
@@ -2700,12 +2702,14 @@
         [sid('dhw_op_mode')]: 'setback', [sid('daily_cop_hc')]: '5.37', [sid('daily_cop_dhw')]: '2.18',
         [bid('compressor')]: scen === 'idle' ? 'off' : 'on', [bid('defrost')]: scen === 'defrost' ? 'on' : 'off', [bid('heating_dhw')]: scen === 'dhw' ? 'on' : 'off',
         [bid('heating_circuit_pump')]: scen === 'dhw' ? 'off' : 'on', [bid('solar_pump')]: 'off', [bid('mixer_open')]: 'off', [bid('mixer_closed')]: 'off',
+        // The utility lock flag is off while the heat pump may run; low end of the heating curve of circuit 1 (setting, K).
+        [bid('evu_release')]: 'off', [tid('number', 'low_end_hc1')]: ['3.0', 'K'],
         [tid('select', 'op_mode')]: { state: scen === 'idle' ? 'setback' : 'automatic', attributes: { options: ['standby', 'automatic', 'daymode', 'setback', 'dhwmode', 'manual', 'emergency'] } },
         [tid('water_heater', 'dhw')]: { state: 'performance', attributes: { current_temperature: 46.0, temperature: 48 } },
         [tid('climate', 'heating_circuit')]: { state: 'heat', attributes: { current_temperature: 21.6, temperature: 21 } },
       };
       // Not installed or hidden: circuit 2 (option "Heating circuit 2" off) and the solar block.
-      [sid('flow_temp_hc2'), sid('hc2_setpoint_temp'), sid('hc2_mixer_valve'), sid('solar_collector_temp')].forEach((id) => delete out[id]);
+      [sid('flow_temp_hc2'), sid('hc2_setpoint_temp'), sid('hc2_mixer_valve'), sid('solar_collector_temp'), tid('number', 'low_end_hc2')].forEach((id) => delete out[id]);
       return out;
     };
     const hass = (scen, extra = {}, registry = reg) => hassOf(toStates({ ...base(scen), ...extra }), registry);
@@ -2733,6 +2737,9 @@
     const two2 = C._resolve({ ...config, hc_count: 2 }, hass('heat', { [sid('flow_temp_hc2')]: ['31.0', '°C'], [sid('hc2_setpoint_temp')]: ['30.5', '°C'], [sid('hc2_mixer_valve')]: ['42', '%'] })).entities;
     check(two2.hc2_flow === sid('flow_temp_hc2') && two2.hc2_setpoint === sid('hc2_setpoint_temp') && two2.hc2_mixer === sid('hc2_mixer_valve')
       && two2.hc2_mixer_opening === bid('mixer_open') && two2.hc2_mixer_closing === bid('mixer_closed'), 'THZ: circuit 2 with its mixer');
+    check(e.hc_curve_offset === tid('number', 'low_end_hc1') && two2.hc2_curve_offset === undefined, 'THZ: the low end of circuit 1 is its curve shift; circuit 2 has none while hidden');
+    const two3 = C._resolve({ ...config, hc_count: 2 }, hass('heat', { [sid('flow_temp_hc2')]: ['31.0', '°C'], [tid('number', 'low_end_hc2')]: ['2.0', 'K'] })).entities;
+    check(two3.hc2_curve_offset === tid('number', 'low_end_hc2') && two3.hc_curve_offset === tid('number', 'low_end_hc1'), 'THZ: circuit 2 takes its own low end');
     const down = C._resolve(config, hass('heat', { [sid('outside_temp')]: 'unavailable', [sid('flow_temp')]: 'unavailable', [sid('dhw_temp')]: 'unavailable' }));
     check(down.ready === false, 'THZ waits while no sensor reports a value');
     const t = r.tiles;
@@ -2771,14 +2778,25 @@
       const card = mount(config, hass(scen, extra)); await wait(20);
       const q = (id) => card.shadowRoot.getElementById(id);
       const out = { mode: q('chip-mode').className, flow: q('t-vl')?.textContent, rl: q('t-rl')?.textContent, hc: q('t-hc')?.textContent,
-        prog: q('chip-program')?.className, err: q('chip-err').classList.contains('on'), ok: ok(card) };
+        hcNow: q('t-hc-now')?.textContent, prog: q('chip-program')?.className, err: q('chip-err').classList.contains('on'), ok: ok(card) };
       card.remove(); return out;
     };
     let o = await thz('heat');
-    check(o.ok && /mode-heat/.test(o.mode) && /34\.2/.test(o.flow) && /30\.1/.test(o.rl) && /33/.test(o.hc) && !o.err, `THZ heating: VL 34.2, RL 30.1, circuit 33.0 (${JSON.stringify(o)})`);
+    // With the low end as curve shift the target stands above the pump (target 32.5 = curve 29.5 + 3 K), the circuit flow below it.
+    check(o.ok && /mode-heat/.test(o.mode) && /34\.2/.test(o.flow) && /30\.1/.test(o.rl) && /33/.test(o.hcNow) && /32\.5/.test(o.hc) && /29\.5/.test(o.hc)
+      && /\+ 3 K/.test(o.hc) && !o.err, `THZ heating: VL 34.2, RL 30.1, circuit 33.0, target with the low end as shift (${JSON.stringify(o)})`);
     o = await thz('dhw'); check(/mode-dhw/.test(o.mode), `THZ DHW heating flag is hot water (${o.mode})`);
     o = await thz('defrost'); check(/mode-defrost/.test(o.mode), `THZ defrost flag (${o.mode})`);
     o = await thz('idle'); check(/mode-idle/.test(o.mode) && o.err && /night/.test(o.prog || ''), `THZ standby with the fault status and the setback program (${JSON.stringify(o)})`);
+    // Utility lock: evu_release is on while the supply is cut, despite its name (real installation).
+    check(e.sg_ready === bid('evu_release'), `THZ: the utility lock flag is the SG-Ready entity (${e.sg_ready})`);
+    const lock = async (state) => {
+      const card = mount(config, hass('idle', { [bid('evu_release')]: state })); await wait(20);
+      const el = card.shadowRoot.getElementById('chip-sg'); const out = `${el.classList.contains('on') ? 'on' : 'off'}:${el.classList.contains('blocked') ? 'blocked' : ''}`;
+      card.remove(); return out;
+    };
+    const locked = await lock('on'); const free = await lock('off');
+    check(locked === 'on:blocked' && free === 'off:', `THZ: evu_release on shows the utility lock, off shows nothing (${locked} / ${free})`);
   }
 
   // 13e. PV surplus mode (pv_boost): chip, heating periods of the timeline, share tile, Lambda preset

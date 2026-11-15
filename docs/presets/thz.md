@@ -61,7 +61,7 @@ The integration has no operating-state sensor that the card can read as a mode: 
 - `buffer_*`: the read map has no buffer temperature.
 - `circulation`: the read map has no circulation pump output. `dhw_pump` is the unit's one pump while the diverter valve sends the flow into the DHW tank (real installation), not a circulation pump.
 - `hc_volume`: see "Open questions".
-- `hours`, `aux_hours`: the integration splits the runtimes into heating, hot water and cooling; they are in the details. Mapping one part would show it as the total. These sensors (`compressor_runtime_*`, `booster_runtime_*`) report hours, although their German names say "starts".
+- `hours`, `aux_hours`: the integration splits the runtimes into heating, hot water and cooling; they are in the details. Mapping one part would show it as the total. These sensors (`compressor_runtime_*`, `booster_runtime_*`) report hours; on installations set up with older releases their entity ids can still say "starts" (e.g. `verdichterstarts_heizung`), which does not matter to the preset.
 - `hc_mode`: `hc_op_mode` (`normal`, `setback`, `standby`, `restart`) is the program of the circuit, not whether it heats. As `hc_mode` it would replace "running" from the circuit pump at the circuit; it stays in the details.
 - `cutout_*`: the card expects event counters. The THZ has only the state flags `high_pressure_sensor`, `low_pressure_sensor` and `stb`.
 - `energy_total` / `energy_today` and heat totals over all uses: the integration has them per use only; they are in the tiles.

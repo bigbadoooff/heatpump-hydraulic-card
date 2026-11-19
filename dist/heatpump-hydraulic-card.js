@@ -1177,7 +1177,9 @@ const HFC_PRESETS = {
         // default), which follows hcStage or dhwStage by the heat request: 0 off, 1 solar, 2 heat pump, 3 to 5 booster stage 1
         // to 3 (heater_map). Else the booster flag of the status block (disabled by default), which is on for both uses.
         heater: [...s('heat_stage_control_modul'), ...b('booster_hc')],
-        dhw_top: s('dhw_temp'),
+        // The one hot water sensor of the integral units sits low in the tank: the card draws it at the bottom and leaves the upper
+        // zone neutral; the tank tile and the hot water run values take it as the highest sensor there is.
+        dhw_bottom: s('dhw_temp'),
         dhw_target: s('dhw_set_temp'),
         // Operating mode of the hot water side (block pxxF3), shown as text; its states never mean "heating hot water now".
         dhw_mode: s('dhw_op_mode'),
@@ -1197,7 +1199,9 @@ const HFC_PRESETS = {
         room_humidity: reading(s('rel_humidity')),
         dew_point: reading(s('dew_point_hc1', 'dew_point')),
         program: k('select', 'op_mode'),
-        compressor_speed: reading(s('compr_rel_power')),
+        // Relative heating power of the inverter (block pxx0A069A, from 5.39 on). compr_rel_power (pxx0A069B) jumps between
+        // unrelated values such as 17, 220 and 240 on a real installation, also while the compressor stands.
+        compressor_speed: reading(s('heating_rel_power')),
         hot_gas: reading(s('hotgas_temp')),
         evap_temp: reading(s('evaporator_temp')),
         cond_temp: reading(s('condenser_temp')),
@@ -4899,6 +4903,10 @@ class HeatpumpFlowCard extends HTMLElement {
   // The circuit of a circuit-spread tile (hc_spread = 1, hc2_spread = 2 …), else 0.
   static _hcSpreadCircuit(key) { const m = /^hc(\d)?_spread$/.exec(key); return m ? +(m[1] || 1) : 0; }
 
+  // The highest tank sensor there is (top, else middle, else bottom): the tank tile and the hot-water run values use it, so a
+  // tank with only a lower sensor (THZ) still shows its temperature there.
+  _dhwTankKey() { return ['dhw_top', 'dhw_middle', 'dhw_bottom'].find((k) => this._has(k)); }
+
   // Live tiles: current values from the schematic entities.
   _liveAvail(key) {
     const h = (k) => this._has(k);
@@ -4909,7 +4917,7 @@ class HeatpumpFlowCard extends HTMLElement {
       spread: h('flow') && h('return'), volume: h('volume'),
       heat_estimated: !h('heat') && h('volume') && h('flow') && h('return'),
       power: h('power'), heat_live: h('heat'), compressor_speed: h('compressor_speed'),
-      source_spread: h('source_in') && h('source_out'), outdoor: h('outdoor'), dhw_top: h('dhw_top'), room: h('room'),
+      source_spread: h('source_in') && h('source_out'), outdoor: h('outdoor'), dhw_top: !!this._dhwTankKey(), room: h('room'),
       brine_pressure: h('brine_pressure'), hc_pressure: h('hc_pressure'),
       pv_share: h('pv_share_today'),
     }[key];
@@ -4936,6 +4944,7 @@ class HeatpumpFlowCard extends HTMLElement {
       case 'brine_pressure': return [this._pressureText('brine_pressure'), this._e.brine_pressure];
       case 'hc_pressure': return [this._pressureText('hc_pressure'), this._e.hc_pressure];
       case 'pv_share': return [f(this._n('pv_share_today'), 0, '%'), this._e.pv_share_today];
+      case 'dhw_top': { const k = this._dhwTankKey() || 'dhw_top'; return [this._t(this._n(k)), this._e[k]]; }
       default: return [this._t(this._n(key)), this._e[key]];
     }
   }
@@ -6120,7 +6129,8 @@ class HeatpumpFlowCard extends HTMLElement {
   _runValues(run) {
     const i = this._i;
     const dhw = run.kind === 'dhw';
-    const keys = (dhw ? ['dhw_top', 'dhw_target', 'heater', ...HFC_TANK_HEATERS.filter((k) => k.startsWith('dhw_')), 'defrost']
+    const tankKey = this._dhwTankKey() || 'dhw_top';
+    const keys = (dhw ? [tankKey, 'dhw_target', 'heater', ...HFC_TANK_HEATERS.filter((k) => k.startsWith('dhw_')), 'defrost']
       : ['flow', 'return', 'hc_flow', 'hc_return', 'hc_setpoint', 'compressor_speed', 'volume', 'outdoor', 'defrost']).filter((k) => this._has(k));
     // Energy of the run (#327): power and heat with every member of their sums, the units of a cascade (#173), and flow rate,
     // flow and return for a heat estimate.
@@ -6205,7 +6215,7 @@ class HeatpumpFlowCard extends HTMLElement {
     const thaw = this._has('defrost') ? onTime('defrost') : null;
     const defrosts = thaw?.known ? thaw.starts : run.phases.filter((p) => p.kind === 'defrost').length;
     if (dhw) {
-      const tank = nums('dhw_top');
+      const tank = nums(tankKey);
       const a = at(tank, run.from); const b = at(tank, run.to);
       if (Number.isFinite(a) && Number.isFinite(b)) rows.push([i.tiles.dhw_top, `${this._esc(this._t(a))} → ${this._esc(this._t(b))} <span class="m">(${b >= a ? '+' : '−'}${this._esc(K(Math.abs(b - a)))})</span>`]);
       const target = at(nums('dhw_target'), run.to);

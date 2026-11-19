@@ -11,6 +11,7 @@
     "hc_volume": "Two sensors share the translation key flow_rate: block pxx0A033B (heat pump flow, used for volume) and block pxxFB offset 55 (heating circuit flow). The display registry carries no unique_id, so they cannot be told apart until the integration gives them separate keys.",
     "hours": "The integration splits the compressor runtime into heating, hot water and cooling; no total exists. The parts are in the details.",
     "energy_total": "Electricity is counted per use only (electr_hc_*, electr_dhw_*); no total over all uses exists. The parts are in the tiles.",
+    "dhw_top": "The integral units have one hot water sensor, low in the tank (owner of a real installation); dhw_temp is mapped as dhw_bottom.",
     "hc_mode": "hc_op_mode is the program of the circuit (normal, setback, standby, restart), not whether it heats; as hc_mode it would replace the pump-based 'running' text. It stays in the details.",
     "cutout_high_pressure": "The card expects event counters; the THZ has only the state flags high_pressure_sensor, low_pressure_sensor and stb."
   },

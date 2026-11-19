@@ -2646,7 +2646,7 @@
         inside_temp_rc: 'raumtemperatur_fernbedienung', room_set_temp: 'raum_solltemperatur', rel_humidity: 'relative_luftfeuchte',
         actual_power_pel: 'elektrische_leistung', actual_power_qc: 'thermische_leistung', flow_rate: 'volumenstrom', pressure_hc: 'heizkreisdruck',
         hotgas_temp: 'heissgastemperatur', evaporator_temp: 'verdampfertemperatur', condenser_temp: 'verflussigertemperatur',
-        pressure_hd: 'hochdruck', pressure_nd: 'niederdruck', compr_rel_power: 'verdichter_relative_leistung', hc_booster_stage: 'heizkreis_boosterstufe',
+        pressure_hd: 'hochdruck', pressure_nd: 'niederdruck', compr_rel_power: 'kompressor_relative_leistung', heating_rel_power: 'heizung_relative_leistung', hc_booster_stage: 'heizkreis_boosterstufe',
         flow_temp_hc2: 'vorlauftemperatur_hk2', hc2_setpoint_temp: 'hk2_solltemperatur', hc2_mixer_valve: 'hk2_mischer', solar_collector_temp: 'solar_kollektortemperatur',
         electr_hc_day: 'strom_heizen_tag', electr_hc_total: 'strom_heizen_gesamt', electr_dhw_day: 'strom_warmwasser_tag', electr_dhw_total: 'strom_warmwasser_gesamt',
         heat_hc_day: 'warme_heizen_tag', heat_hc_total: 'warme_heizen_gesamt', heat_dhw_day: 'warme_warmwasser_tag', heat_dhw_total: 'warme_warmwasser_gesamt',
@@ -2683,7 +2683,7 @@
         [sid('flow_rate')]: [pick({ heat: '15.0', dhw: '14.2', defrost: '14.8', idle: '0.0' }), 'l/min'], [sid('pressure_hc')]: ['1.7', 'bar'],
         [sid('hotgas_temp')]: [pick({ heat: '66.0', dhw: '82.0', defrost: '40.0', idle: '24.0' }), '°C'], [sid('evaporator_temp')]: ['-2.0', '°C'],
         [sid('condenser_temp')]: ['36.0', '°C'], [sid('pressure_hd')]: ['18.2', 'bar'], [sid('pressure_nd')]: ['5.4', 'bar'],
-        [sid('compr_rel_power')]: [pick({ heat: '55', dhw: '80', defrost: '60', idle: '0' }), '%'],
+        [sid('heating_rel_power')]: [pick({ heat: '55', dhw: '80', defrost: '60', idle: '37' }), '%'], [sid('compr_rel_power')]: ['220', '%'],
         // The stage fields read 2 (heat pump) whenever the compressor runs (real installation), while the booster flag stays off.
         [sid('hc_booster_stage')]: scen === 'idle' ? '0' : '2', [bid('booster_hc')]: 'off',
         [sid('hc_stage')]: scen === 'heat' || scen === 'defrost' ? '2.0' : '0.0', [sid('dhw_stage')]: scen === 'dhw' ? '2.0' : '0.0',
@@ -2720,12 +2720,12 @@
       `THZ compressor, defrost and DHW heating flag, no mode entity (${e.compressor} / ${e.valve})`);
     check(e.flow === sid('flow_temp') && e.return === sid('return_temp') && e.volume === sid('flow_rate') && e.outdoor === sid('outside_temp')
       && e.power === sid('actual_power_pel') && e.heat === sid('actual_power_qc'), 'THZ flow, return, flow rate, outdoor, electrical and thermal power');
-    check(e.dhw_top === sid('dhw_temp') && e.dhw_target === sid('dhw_set_temp') && e.hc_flow === sid('heat_temp') && e.hc_setpoint === sid('heat_set_temp')
-      && e.hc_pump === bid('heating_circuit_pump') && e.hc_pressure === sid('pressure_hc'), 'THZ hot water with target, heating circuit 1 and its pressure');
+    check(e.dhw_bottom === sid('dhw_temp') && e.dhw_top === undefined && e.dhw_target === sid('dhw_set_temp') && e.hc_flow === sid('heat_temp') && e.hc_setpoint === sid('heat_set_temp')
+      && e.hc_pump === bid('heating_circuit_pump') && e.hc_pressure === sid('pressure_hc'), 'THZ hot water sensor at the bottom of the tank with target, heating circuit 1 and its pressure');
     check(e.room === sid('inside_temp_rc') && e.room_target === sid('room_set_temp') && e.room_humidity === sid('rel_humidity') && e.program === tid('select', 'op_mode'),
       'THZ room values of the remote control and the operating mode select');
     check(e.heater === sid('heat_stage_control_modul') && e.hot_gas === sid('hotgas_temp') && e.evap_temp === sid('evaporator_temp') && e.cond_temp === sid('condenser_temp')
-      && e.high_pressure === sid('pressure_hd') && e.low_pressure === sid('pressure_nd') && e.compressor_speed === sid('compr_rel_power'), 'THZ booster stage and refrigerant circuit');
+      && e.high_pressure === sid('pressure_hd') && e.low_pressure === sid('pressure_nd') && e.compressor_speed === sid('heating_rel_power'), 'THZ booster stage and refrigerant circuit; the relative heating power is the compressor speed');
     check(e.solar_collector === undefined && e.solar_pump === undefined && e.buffer_top === undefined, 'THZ: no solar block, no solar parts; no buffer');
     const sol = C._resolve(config, hass('heat', { [sid('solar_collector_temp')]: ['54.0', '°C'] })).entities;
     check(sol.solar_collector === sid('solar_collector_temp') && sol.solar_pump === bid('solar_pump'), 'THZ: a reporting solar block maps collector and solar pump');
@@ -2778,13 +2778,17 @@
       const card = mount(config, hass(scen, extra)); await wait(20);
       const q = (id) => card.shadowRoot.getElementById(id);
       const out = { mode: q('chip-mode').className, flow: q('t-vl')?.textContent, rl: q('t-rl')?.textContent, hc: q('t-hc')?.textContent,
-        hcNow: q('t-hc-now')?.textContent, prog: q('chip-program')?.className, err: q('chip-err').classList.contains('on'), ok: ok(card) };
+        hcNow: q('t-hc-now')?.textContent, tankTop: q('t-dhw-top')?.textContent, tankBottom: q('t-dhw-bottom')?.textContent,
+        tankTile: card._liveAvail('dhw_top') ? card._liveTile('dhw_top', {}).join('|') : 'none', prog: q('chip-program')?.className, err: q('chip-err').classList.contains('on'), ok: ok(card) };
       card.remove(); return out;
     };
     let o = await thz('heat');
     // With the low end as curve shift the target stands above the pump (target 32.5 = curve 29.5 + 3 K), the circuit flow below it.
     check(o.ok && /mode-heat/.test(o.mode) && /34\.2/.test(o.flow) && /30\.1/.test(o.rl) && /33/.test(o.hcNow) && /32\.5/.test(o.hc) && /29\.5/.test(o.hc)
       && /\+ 3 K/.test(o.hc) && !o.err, `THZ heating: VL 34.2, RL 30.1, circuit 33.0, target with the low end as shift (${JSON.stringify(o)})`);
+    // The one tank sensor sits low: drawn at the bottom, no value at the top; the tank tile still reads it as the highest sensor.
+    check(/46/.test(o.tankBottom || '') && !(o.tankTop || '').trim() && /^46\D.*\|/.test(o.tankTile) && o.tankTile.endsWith(`|${sid('dhw_temp')}`),
+      `THZ: hot water at the bottom of the tank, tank tile from it (${o.tankTop} / ${o.tankBottom} / ${o.tankTile})`);
     o = await thz('dhw'); check(/mode-dhw/.test(o.mode), `THZ DHW heating flag is hot water (${o.mode})`);
     o = await thz('defrost'); check(/mode-defrost/.test(o.mode), `THZ defrost flag (${o.mode})`);
     o = await thz('idle'); check(/mode-idle/.test(o.mode) && o.err && /night/.test(o.prog || ''), `THZ standby with the fault status and the setback program (${JSON.stringify(o)})`);
